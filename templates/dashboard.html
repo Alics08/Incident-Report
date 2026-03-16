@@ -1,0 +1,463 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+
+<h3>Incident Monitoring Dashboard</h3>
+
+<a href="/archive" class="btn btn-secondary">
+Archived Incidents
+</a>
+
+</div>
+
+
+<div class="row">
+
+<div class="col-md-7">
+<div id="map" style="height:500px;border-radius:8px;" class="mb-4"></div>
+</div>
+
+
+<div class="col-md-5">
+
+<h4>Submitted Incidents</h4>
+
+<div style="max-height:500px; overflow-y:auto;">
+
+<table class="table table-bordered table-striped">
+
+<thead class="table-dark">
+<tr>
+<th>ID</th>
+<th>Type</th>
+<th>Time</th>
+<th>Actions</th>
+</tr>
+</thead>
+
+<tbody id="incidentTable"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+</div>
+
+
+<div class="modal fade" id="incidentModal" tabindex="-1">
+
+<div class="modal-dialog modal-dialog-draggable">
+
+<div class="modal-content">
+
+<div class="modal-header draggable-header">
+
+<h5 class="modal-title">Incident Details</h5>
+<button class="btn-close" data-bs-dismiss="modal"></button>
+
+</div>
+
+<div class="modal-body" id="modalContent"></div>
+
+</div>
+</div>
+</div>
+
+
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+
+<style>
+
+.blink-marker{
+animation: blink 1s infinite;
+}
+
+@keyframes blink{
+0%{opacity:1;}
+50%{opacity:0.2;}
+100%{opacity:1;}
+}
+
+/* LANDSCAPE MODAL */
+
+.modal-dialog{
+max-width:700px;
+margin:80px auto;
+}
+
+/* REMOVE DARK BACKGROUND */
+
+.modal-backdrop{
+opacity:0 !important;
+}
+
+/* DRAG CURSOR */
+
+.draggable-header{
+cursor:move;
+}
+
+/* LANDSCAPE CONTENT */
+
+.incident-flex{
+display:flex;
+gap:15px;
+align-items:flex-start;
+}
+
+/* IMAGE FIT */
+
+.incident-photo{
+width:320px;
+height:220px;
+object-fit:cover;
+border-radius:6px;
+}
+
+.incident-info{
+flex:1;
+font-size:14px;
+}
+
+/* ACTION BUTTON ALIGNMENT */
+
+.action-buttons{
+display:flex;
+gap:4px;
+flex-wrap:nowrap;
+}
+
+</style>
+
+
+<script>
+
+document.addEventListener("DOMContentLoaded", function(){
+
+var map = L.map('map').setView([14.5995,120.9842],13);
+
+
+/* MAP LAYERS */
+
+var street = L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{ attribution:'© OpenStreetMap' }
+);
+
+var satellite = L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{ attribution:'Tiles © Esri' }
+);
+
+satellite.addTo(map);
+
+L.control.layers({
+"Street Map":street,
+"Satellite":satellite
+}).addTo(map);
+
+
+
+/* DATA STORAGE */
+
+var incidents = {{ incidents | tojson | safe }};
+
+var markers = {};
+var incidentStore = {};
+var knownIncidentIDs = new Set();
+var unseenIncidents = new Set();
+
+var table = document.getElementById("incidentTable");
+
+
+/* ALERT SOUND */
+
+var alertSound = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+alertSound.loop = true;
+
+
+
+/* ADD INCIDENT FUNCTION */
+
+function addIncident(i, isNew=false){
+
+if(knownIncidentIDs.has(i.id)) return;
+
+knownIncidentIDs.add(i.id);
+incidentStore[i.id] = i;
+
+
+/* CREATE MARKER */
+
+if(i.latitude && i.longitude){
+
+var popup =
+"<b>"+i.type+"</b><br>"+i.description;
+
+var marker = L.marker([i.latitude,i.longitude])
+.addTo(map)
+.bindPopup(popup);
+
+markers[i.id] = marker;
+
+
+/* BLINK IF NEW */
+
+if(isNew){
+
+unseenIncidents.add(i.id);
+
+setTimeout(function(){
+
+if(marker._icon){
+marker._icon.classList.add("blink-marker");
+}
+
+},200);
+
+alertSound.pause();
+alertSound.currentTime = 0;
+alertSound.play().catch(()=>{});
+
+}
+
+}
+
+
+/* TABLE ROW */
+
+var row = document.createElement("tr");
+
+row.innerHTML = `
+<td>${i.id}</td>
+
+<td>
+<span class="badge bg-danger">${i.type}</span>
+</td>
+
+<td>${i.time}</td>
+
+<td>
+<div class="action-buttons">
+
+<button class="btn btn-sm btn-primary view-btn"
+data-id="${i.id}">
+View
+</button>
+
+<a href="/resolve/${i.id}"
+class="btn btn-sm btn-success"
+onclick="return confirm('Mark this incident as resolved?')">
+Resolve
+</a>
+
+<a href="/download-report/${i.id}"
+class="btn btn-sm btn-warning">
+Download
+</a>
+
+</div>
+</td>
+`;
+
+table.prepend(row);
+
+}
+
+
+
+/* INITIAL LOAD */
+
+incidents.forEach(function(i){
+addIncident(i,false);
+});
+
+
+
+/* AUTO ZOOM INITIAL */
+
+var markerArray = Object.values(markers);
+
+if(markerArray.length){
+
+var group = new L.featureGroup(markerArray);
+
+map.fitBounds(group.getBounds().pad(0.3));
+
+}
+
+
+
+/* LIVE INCIDENT FETCH */
+
+setInterval(function(){
+
+fetch("/api/incidents?t="+Date.now())
+
+.then(res=>res.json())
+
+.then(data=>{
+
+data.forEach(function(i){
+
+if(!knownIncidentIDs.has(i.id)){
+addIncident(i,true);
+}
+
+});
+
+})
+
+.catch(err=>console.log("Live update error:",err));
+
+},5000);
+
+
+
+/* VIEW BUTTON HANDLER */
+
+document.addEventListener("click", function(e){
+
+if(e.target.classList.contains("view-btn")){
+
+var id = e.target.dataset.id;
+
+openIncident(id);
+
+}
+
+});
+
+
+
+/* OPEN INCIDENT */
+
+function openIncident(id){
+
+var data = incidentStore[id];
+
+if(!data) return;
+
+
+/* CENTER PIN IN MAP */
+
+if(markers[id]){
+
+map.flyTo(
+[data.latitude,data.longitude],
+18,
+{animate:true}
+);
+
+markers[id].openPopup();
+
+if(markers[id]._icon){
+markers[id]._icon.classList.remove("blink-marker");
+}
+
+}
+
+
+/* STOP ALERT */
+
+unseenIncidents.delete(Number(id));
+
+if(unseenIncidents.size === 0){
+
+alertSound.pause();
+alertSound.currentTime = 0;
+
+}
+
+
+/* MODAL CONTENT */
+
+var content = `
+<div class="incident-flex">
+
+<div class="incident-info">
+
+<b>Incident Type:</b> ${data.type}<br><br>
+
+<b>Description:</b><br>
+${data.description}<br><br>
+
+<b>Location:</b><br>
+${data.address || "Not available"}<br><br>
+
+<b>Coordinates:</b><br>
+${data.latitude}, ${data.longitude}<br><br>
+
+<b>Time Received:</b><br>
+${data.time}<br><br>
+
+</div>
+`;
+
+if(data.photo){
+
+content += `
+<img class="incident-photo"
+src="/static/images/${data.photo}?t=${Date.now()}">
+`;
+
+}
+
+content += `</div>`;
+
+
+document.getElementById("modalContent").innerHTML = content;
+
+new bootstrap.Modal(
+document.getElementById("incidentModal")
+).show();
+
+}
+
+
+
+/* DRAGGABLE MODAL */
+
+const modalDialog = document.querySelector(".modal-dialog");
+const modalHeader = document.querySelector(".draggable-header");
+
+let isDragging = false;
+let offsetX, offsetY;
+
+modalHeader.addEventListener("mousedown", function(e){
+
+isDragging = true;
+
+offsetX = e.clientX - modalDialog.offsetLeft;
+offsetY = e.clientY - modalDialog.offsetTop;
+
+});
+
+document.addEventListener("mousemove", function(e){
+
+if(!isDragging) return;
+
+modalDialog.style.margin = "0";
+modalDialog.style.position = "absolute";
+
+modalDialog.style.left = (e.clientX - offsetX) + "px";
+modalDialog.style.top = (e.clientY - offsetY) + "px";
+
+});
+
+document.addEventListener("mouseup", function(){
+isDragging = false;
+});
+
+});
+
+</script>
+
+{% endblock %}

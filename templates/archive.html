@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+
+<h3>Resolved Incidents Archive</h3>
+
+<a href="/dashboard" class="btn btn-primary">
+Back to Dashboard
+</a>
+
+</div>
+
+<table class="table table-bordered">
+
+<thead class="table-dark">
+<tr>
+<th>ID</th>
+<th>Type</th>
+<th>Description</th>
+<th>Coordinates</th>
+<th>Time</th>
+</tr>
+</thead>
+
+<tbody>
+
+{% for i in incidents %}
+
+<tr>
+
+<td>{{ i.id }}</td>
+
+<td>{{ i.type }}</td>
+
+<td>{{ i.description }}</td>
+
+<td>{{ i.latitude }}, {{ i.longitude }}</td>
+
+<td>{{ i.created_at }}</td>
+
+</tr>
+
+{% endfor %}
+
+</tbody>
+
+</table>
+
+{% endblock %}

@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<h3>Report Incident</h3>
+
+<div class="alert alert-warning">
+Please pin the <b>exact incident location</b> on the map before submitting.
+</div>
+
+<form method="POST" enctype="multipart/form-data" onsubmit="return validateForm()">
+
+<div class="mb-3">
+
+<label class="form-label">Incident Type</label>
+
+<select class="form-control" name="type" id="incidentType" required>
+
+<option value="">Select Incident</option>
+
+<option value="Fire">Fire</option>
+<option value="Medical Emergency">Medical Emergency</option>
+<option value="Crime">Crime</option>
+<option value="Accident">Road Accident</option>
+<option value="Flood">Flood</option>
+<option value="Landslide">Landslide</option>
+<option value="Missing Person">Missing Person</option>
+<option value="Suspicious Activity">Suspicious Activity</option>
+
+</select>
+
+</div>
+
+
+<div class="mb-3">
+
+<label class="form-label">Description</label>
+
+<select class="form-control mb-2" id="suggestions">
+<option value="">Select suggested description</option>
+</select>
+
+<textarea class="form-control" name="description" id="description" rows="4" required></textarea>
+
+</div>
+
+
+<div class="mb-3">
+
+<label class="form-label">Incident Location</label>
+
+<div id="map" style="height:400px;border-radius:6px;"></div>
+
+</div>
+
+
+<div class="mb-3">
+
+<label class="form-label">Photo Evidence</label>
+
+<input type="file"
+class="form-control mb-2"
+name="photo"
+id="photoUpload"
+accept="image/*">
+
+<button type="button"
+class="btn btn-secondary"
+onclick="openCamera()">
+Open Camera
+</button>
+
+</div>
+
+
+<div id="cameraBox" style="display:none" class="mb-3">
+
+<video id="camera" width="320" height="240" autoplay style="border:1px solid #ccc"></video>
+
+<br>
+
+<button type="button"
+class="btn btn-success mt-2"
+onclick="capturePhoto()">
+Capture Photo
+</button>
+
+</div>
+
+<canvas id="canvas" style="display:none"></canvas>
+
+
+<input type="hidden" id="latitude" name="latitude">
+<input type="hidden" id="longitude" name="longitude">
+
+<input type="hidden" id="address" name="address">
+
+
+<button class="btn btn-primary">
+Submit Incident
+</button>
+
+</form>
+
+
+
+<div class="modal fade" id="messageModal" tabindex="-1">
+<div class="modal-dialog modal-dialog-centered">
+<div class="modal-content">
+
+<div class="modal-header bg-primary text-white">
+<h5 class="modal-title">System Message</h5>
+<button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+</div>
+
+<div class="modal-body" id="modalMessage"></div>
+
+</div>
+</div>
+</div>
+
+
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+
+
+<script>
+
+function showModal(message){
+
+document.getElementById("modalMessage").innerHTML = message;
+
+let modal = new bootstrap.Modal(document.getElementById("messageModal"));
+
+modal.show();
+
+setTimeout(function(){
+modal.hide();
+},4000);
+
+}
+
+
+window.onload = function(){
+
+showModal("Please pin the exact incident location on the map before submitting your report.");
+
+};
+
+
+
+const descriptions = {
+
+"Fire":[
+"Large fire reported in a residential area with visible smoke and flames rising from a structure.",
+"Possible electrical fire inside a building causing heavy smoke and immediate danger.",
+"Fire spreading rapidly between houses and may require immediate fire response.",
+"Strong burning smell and visible smoke coming from a nearby building."
+],
+
+"Medical Emergency":[
+"Person collapsed and appears unconscious, immediate medical assistance needed.",
+"Individual experiencing severe chest pain and difficulty breathing.",
+"Serious injury observed and urgent ambulance assistance required.",
+"Person suffering possible stroke or seizure."
+],
+
+"Crime":[
+"Robbery reported in the area with suspect possibly fleeing the scene.",
+"Physical altercation between individuals causing disturbance.",
+"Possible theft or burglary currently taking place.",
+"Suspicious individuals attempting to break into a property."
+],
+
+"Accident":[
+"Vehicle collision on the road involving multiple vehicles.",
+"Motorcycle accident with possible injuries requiring assistance.",
+"Pedestrian involved in a traffic accident.",
+"Overturned vehicle blocking traffic."
+],
+
+"Flood":[
+"Water level rising quickly in the community and starting to flood houses.",
+"Flooded road making transportation difficult.",
+"Heavy rainfall causing severe street flooding.",
+"Drainage overflow causing flooding in nearby houses."
+],
+
+"Landslide":[
+"Soil movement observed along hillside causing road blockage.",
+"Large amount of soil and rocks sliding down the slope.",
+"Possible landslide threatening nearby homes."
+],
+
+"Missing Person":[
+"Child reported missing and last seen in the area.",
+"Elderly person cannot be located and may require search assistance.",
+"Person missing under suspicious circumstances."
+],
+
+"Suspicious Activity":[
+"Unknown person loitering around houses and observing properties.",
+"Suspicious vehicle parked for a long time with unknown occupants.",
+"Strangers acting suspiciously in the neighborhood."
+]
+
+};
+
+
+
+document.getElementById("incidentType").addEventListener("change", function(){
+
+let type = this.value;
+let suggestionBox = document.getElementById("suggestions");
+
+suggestionBox.innerHTML = "";
+
+if(descriptions[type]){
+
+descriptions[type].forEach(function(text){
+
+let option = document.createElement("option");
+
+option.value = text;
+option.text = text;
+
+suggestionBox.appendChild(option);
+
+});
+
+}
+
+});
+
+
+document.getElementById("suggestions").addEventListener("change", function(){
+
+document.getElementById("description").value = this.value;
+
+});
+
+
+
+var map = L.map('map').setView([14.5995,120.9842],13);
+
+
+var satellite = L.tileLayer(
+'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+{ attribution:'Tiles © Esri' }
+).addTo(map);
+
+
+var street = L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{ attribution:'© OpenStreetMap' }
+);
+
+
+L.control.layers({
+"Satellite": satellite,
+"Street": street
+}).addTo(map);
+
+
+var marker;
+let locationPinned = false;
+
+
+if(navigator.geolocation){
+
+navigator.geolocation.getCurrentPosition(function(position){
+
+let lat = position.coords.latitude;
+let lon = position.coords.longitude;
+
+map.setView([lat,lon],17);
+
+marker = L.marker([lat,lon]).addTo(map);
+
+});
+
+}
+
+
+async function detectAddress(lat,lon){
+
+try{
+
+let response = await fetch(
+`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
+);
+
+let data = await response.json();
+
+let addr = data.address || {};
+
+let street = addr.road || "";
+let barangay = addr.suburb || addr.village || addr.neighbourhood || "";
+let city = addr.city || addr.town || addr.municipality || "";
+
+let full = street;
+
+if(barangay) full += ", " + barangay;
+if(city) full += ", " + city;
+
+document.getElementById("address").value = full;
+
+}catch(e){
+
+console.log("Address detection failed");
+
+}
+
+}
+
+
+map.on("click", function(e){
+
+let lat = e.latlng.lat;
+let lon = e.latlng.lng;
+
+document.getElementById("latitude").value = lat;
+document.getElementById("longitude").value = lon;
+
+locationPinned = true;
+
+detectAddress(lat,lon);
+
+if(marker){
+
+marker.setLatLng(e.latlng);
+
+}else{
+
+marker = L.marker(e.latlng).addTo(map);
+
+}
+
+});
+
+
+function validateForm(){
+
+if(!locationPinned){
+
+showModal("Please pin the exact incident location on the map before submitting.");
+
+return false;
+
+}
+
+let type = document.getElementById("incidentType").value;
+
+showResponse(type);
+
+/* DELAY FORM SUBMISSION */
+
+setTimeout(function(){
+
+document.querySelector("form").submit();
+
+},1500);
+
+return false;
+
+}
+
+
+function showResponse(type){
+
+const messages = {
+
+"Fire":"Fire responders have been notified and are on the way to the reported location.",
+"Medical Emergency":"Emergency medical responders have been dispatched.",
+"Crime":"Police authorities have been alerted and units are responding.",
+"Accident":"Traffic and emergency responders are on their way.",
+"Flood":"Disaster response team has been notified.",
+"Landslide":"Rescue and disaster teams are responding.",
+"Missing Person":"Authorities have been notified about the missing person.",
+"Suspicious Activity":"Police patrol units have been alerted."
+
+};
+
+if(messages[type]){
+
+showModal(messages[type]);
+
+}
+
+}
+
+
+
+let cameraStream = null;
+
+function openCamera(){
+
+navigator.mediaDevices.getUserMedia({ video:true })
+
+.then(function(stream){
+
+cameraStream = stream;
+
+document.getElementById("cameraBox").style.display = "block";
+
+document.getElementById("camera").srcObject = stream;
+
+})
+
+.catch(function(){
+
+showModal("Camera not accessible.");
+
+});
+
+}
+
+
+function capturePhoto(){
+
+let video = document.getElementById("camera");
+let canvas = document.getElementById("canvas");
+let context = canvas.getContext("2d");
+
+canvas.width = video.videoWidth;
+canvas.height = video.videoHeight;
+
+context.drawImage(video,0,0);
+
+canvas.toBlob(function(blob){
+
+let file = new File([blob], "camera.jpg", {type:"image/jpeg"});
+
+let container = new DataTransfer();
+
+container.items.add(file);
+
+document.getElementById("photoUpload").files = container.files;
+
+});
+
+if(cameraStream){
+
+cameraStream.getTracks().forEach(track => track.stop());
+
+}
+
+}
+
+</script>
+
+{% endblock %}
