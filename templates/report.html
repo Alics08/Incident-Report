@@ -62,7 +62,8 @@ Please pin the <b>exact incident location</b> on the map before submitting.
 class="form-control mb-2"
 name="photo"
 id="photoUpload"
-accept="image/*">
+accept="image/*"
+required>
 
 <button type="button"
 class="btn btn-secondary"
@@ -75,6 +76,15 @@ Open Camera
 
 <div id="cameraBox" style="display:none" class="mb-3">
 
+<div class="mb-2">
+
+<select id="cameraSelect" class="form-control" onchange="switchCamera()">
+<option value="environment">Rear Camera</option>
+<option value="user">Front Camera</option>
+</select>
+
+</div>
+
 <video id="camera" width="320" height="240" autoplay style="border:1px solid #ccc"></video>
 
 <br>
@@ -83,6 +93,12 @@ Open Camera
 class="btn btn-success mt-2"
 onclick="capturePhoto()">
 Capture Photo
+</button>
+
+<button type="button"
+class="btn btn-danger mt-2"
+onclick="closeCamera()">
+Close Camera
 </button>
 
 </div>
@@ -351,11 +367,21 @@ return false;
 
 }
 
+/* PHOTO REQUIRED VALIDATION */
+
+let photo = document.getElementById("photoUpload").files.length;
+
+if(photo === 0){
+
+showModal("Photo evidence is REQUIRED. False or fraudulent emergency reports are punishable by law.");
+
+return false;
+
+}
+
 let type = document.getElementById("incidentType").value;
 
 showResponse(type);
-
-/* DELAY FORM SUBMISSION */
 
 setTimeout(function(){
 
@@ -397,7 +423,16 @@ let cameraStream = null;
 
 function openCamera(){
 
-navigator.mediaDevices.getUserMedia({ video:true })
+showModal("Warning: Submitting false or fraudulent emergency reports is punishable by law.");
+
+startCamera("environment");
+
+}
+
+
+function startCamera(mode){
+
+navigator.mediaDevices.getUserMedia({ video:{ facingMode:mode } })
 
 .then(function(stream){
 
@@ -414,6 +449,34 @@ document.getElementById("camera").srcObject = stream;
 showModal("Camera not accessible.");
 
 });
+
+}
+
+
+function switchCamera(){
+
+let mode = document.getElementById("cameraSelect").value;
+
+if(cameraStream){
+
+cameraStream.getTracks().forEach(track => track.stop());
+
+}
+
+startCamera(mode);
+
+}
+
+
+function closeCamera(){
+
+if(cameraStream){
+
+cameraStream.getTracks().forEach(track => track.stop());
+
+}
+
+document.getElementById("cameraBox").style.display = "none";
 
 }
 
@@ -439,6 +502,8 @@ container.items.add(file);
 
 document.getElementById("photoUpload").files = container.files;
 
+showModal("Photo captured. False reports are punishable by law.");
+
 });
 
 if(cameraStream){
@@ -448,6 +513,14 @@ cameraStream.getTracks().forEach(track => track.stop());
 }
 
 }
+
+
+document.getElementById("photoUpload").addEventListener("change",function(){
+
+showModal("Reminder: Submitting false emergency reports may lead to legal penalties.");
+
+});
+
 
 </script>
 
