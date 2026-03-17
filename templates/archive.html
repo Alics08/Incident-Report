@@ -21,6 +21,7 @@ Back to Dashboard
 <th>Description</th>
 <th>Coordinates</th>
 <th>Time</th>
+<th>Actions</th>
 </tr>
 </thead>
 
@@ -38,7 +39,28 @@ Back to Dashboard
 
 <td>{{ i.latitude }}, {{ i.longitude }}</td>
 
-<td>{{ i.created_at }}</td>
+<td>
+{% if i.created_at %}
+{{ i.created_at.strftime("%Y-%m-%d %H:%M:%S") }}
+{% else %}
+N/A
+{% endif %}
+</td>
+
+<td>
+
+<form method="POST"
+action="/delete_incident/{{ i.id }}"
+style="display:inline;"
+onsubmit="return confirm('Delete this archived incident permanently?')">
+
+<button class="btn btn-sm btn-danger">
+🗑
+</button>
+
+</form>
+
+</td>
 
 </tr>
 

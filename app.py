@@ -1,10 +1,11 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, abort, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
-from datetime import datetime
+from datetime import datetime, timedelta
 from report_generator import generate_incident_report
 import os
 import sqlite3
+import pytz  # ✅ ADDED FOR TIME ACCURACY
 
 app = Flask(__name__)
 
@@ -21,6 +22,9 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///incidents.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+
+# ✅ PH TIMEZONE
+PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
 # ----------------------
 # DATABASE MODEL
@@ -40,7 +44,7 @@ class Incident(db.Model):
 
     photo = db.Column(db.String(200))
 
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(PH_TIMEZONE))  # ✅ FIXED TIME
 
     status = db.Column(db.String(20), default="ongoing")
 
@@ -127,14 +131,29 @@ def report():
 
         photo = request.files.get('photo')
 
+        # ✅ REQUIRE PHOTO
+        if not photo or photo.filename == "":
+            flash("Photo evidence is required. False reports are punishable by law.", "danger")
+            return redirect(url_for('report'))
+
+        # -----------------------------
+        # RATE LIMIT (4 PER 30 MIN)
+        # -----------------------------
+        time_limit = datetime.now(PH_TIMEZONE) - timedelta(minutes=30)
+
+        recent_reports = Incident.query.filter(
+            Incident.created_at >= time_limit
+        ).count()
+
+        if recent_reports >= 4:
+            flash("Maximum of 4 incidents every 30 minutes reached. Please wait.", "danger")
+            return redirect(url_for('report'))
+
         filename = ""
 
         if photo and photo.filename != "":
-
             filename = secure_filename(photo.filename)
-
             photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
             photo.save(photo_path)
 
         incident = Incident(
@@ -143,7 +162,7 @@ def report():
             latitude=latitude,
             longitude=longitude,
             photo=filename,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(PH_TIMEZONE),  # ✅ FIXED TIME
             status="ongoing",
             address=address
         )
@@ -213,6 +232,32 @@ def dashboard():
         })
 
     return render_template("dashboard.html", incidents=incident_list)
+
+
+# ----------------------
+# DELETE INCIDENT (ADMIN)
+# ----------------------
+
+@app.route('/delete_incident/<int:id>', methods=['POST'])
+def delete_incident(id):
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    incident = Incident.query.get_or_404(id)
+
+    # delete photo
+    if incident.photo:
+        photo_path = os.path.join(app.config['UPLOAD_FOLDER'], incident.photo)
+        if os.path.exists(photo_path):
+            os.remove(photo_path)
+
+    db.session.delete(incident)
+    db.session.commit()
+
+    flash("Incident deleted successfully.", "success")
+
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 # ----------------------

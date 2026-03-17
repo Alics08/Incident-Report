@@ -263,6 +263,17 @@ class="btn btn-sm btn-warning">
 Download
 </a>
 
+<form method="POST"
+action="/delete_incident/${i.id}"
+style="display:inline;"
+onsubmit="return confirm('Delete this incident permanently?')">
+
+<button class="btn btn-sm btn-danger">
+🗑
+</button>
+
+</form>
+
 </div>
 </td>
 `;
