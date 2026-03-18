@@ -29,6 +29,16 @@ db = SQLAlchemy(app)
 
 PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
+
+# ----------------------
+# 🔥 AUTO CLEAR FLASH AFTER 1 SECOND
+# ----------------------
+@app.after_request
+def add_header(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
 # ----------------------
 # DATABASE MODEL
 # ----------------------
@@ -161,6 +171,7 @@ def report():
         db.session.add(incident)
         db.session.commit()
 
+        flash("Incident submitted successfully.", "success")
         return redirect(url_for('report'))
 
     return render_template("report.html")
@@ -185,6 +196,8 @@ def admin_login():
             session['admin'] = True
             return redirect(url_for('dashboard'))
 
+        flash("Invalid login credentials.", "danger")
+
     return render_template("login.html")
 
 
@@ -208,7 +221,7 @@ def dashboard():
         time_value = ""
 
         if i.created_at:
-            time_value = i.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            time_value = i.created_at.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
         incident_list.append({
             "id": i.id,
@@ -266,7 +279,7 @@ def api_incidents():
         time_value = ""
 
         if i.created_at:
-            time_value = i.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            time_value = i.created_at.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
 
         data.append({
             "id": i.id,
@@ -321,6 +334,8 @@ def resolve_incident(id):
     incident.status = "resolved"
     db.session.commit()
 
+    flash("Incident marked as resolved.", "success")
+
     return redirect(url_for('dashboard'))
 
 
@@ -347,7 +362,7 @@ def archive():
 
 
 # ----------------------
-# 📊 MONTHLY REPORT (SYNCED WITH ARCHIVE)
+# MONTHLY REPORT
 # ----------------------
 
 @app.route('/monthly-report')
@@ -356,22 +371,21 @@ def monthly_report():
     if not session.get('admin'):
         return redirect(url_for('admin_login'))
 
-    current_month = datetime.now(PH_TIMEZONE).month
-    current_year = datetime.now(PH_TIMEZONE).year
+    now = datetime.now(PH_TIMEZONE)
+    current_month = now.month
+    current_year = now.year
 
     incidents = Incident.query.filter(
         func.extract('month', Incident.created_at) == current_month,
         func.extract('year', Incident.created_at) == current_year
     ).order_by(Incident.created_at.desc()).all()
 
-    # ✅ GROUP LIKE ARCHIVE
     grouped = defaultdict(list)
 
     for i in incidents:
         date_key = i.created_at.strftime("%B %d, %Y") if i.created_at else "Unknown Date"
         grouped[date_key].append(i)
 
-    # ✅ GRAPH DATA
     summary = db.session.query(
         Incident.type,
         func.count(Incident.id)
@@ -386,7 +400,7 @@ def monthly_report():
     return render_template(
         "monthly_report.html",
         incidents=incidents,
-        grouped_incidents=grouped,  # ✅ KEY SYNC
+        grouped_incidents=grouped,
         labels=labels,
         values=values
     )

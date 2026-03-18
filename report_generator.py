@@ -128,25 +128,17 @@ def generate_incident_report(incident, upload_folder):
     y -= 20
 
     narrative = f"""
-On {time_value}, a report classified under "{incident.type}" was formally submitted
-through the Municipal Incident Reporting System. The system captured the report
-in real-time, ensuring immediate availability for monitoring and response.
+On {time_value}, an incident categorized as "{incident.type}" was officially reported through the Municipal Incident Reporting System. The report was captured and recorded in real-time, ensuring prompt visibility for monitoring and potential response by the concerned authorities.
 
-The reported incident is associated with the location identified as {address}.
-Geospatial verification confirms the coordinates at {incident.latitude}, {incident.longitude},
-which have been recorded to support accurate mapping and response planning.
+The incident was reported at the location identified as {address}. Based on geospatial data, the exact coordinates of the incident are {incident.latitude}, {incident.longitude}. This precise location information supports accurate mapping, situational awareness, and response planning.
 
-Based on the information provided by the reporting individual, the situation is described as follows:
+According to the reporting individual, the incident is described as follows:
 
 "{description}"
 
-To strengthen the credibility of the report, the user submitted photographic
-evidence through the system. Additionally, the exact pinned map location has been
-captured and included in this report to assist authorities in visualizing the
-incident area more effectively.
+To support the validity of the report, photographic evidence was submitted through the system. Additionally, a map representation of the pinned location has been generated and included in this document to assist authorities in visualizing the exact area of the incident.
 
-This report is generated as part of the municipality's initiative to improve
-incident documentation, transparency, and response efficiency.
+This report is generated as part of the municipality's initiative to strengthen incident documentation, improve transparency, and enhance overall emergency response efficiency.
 """
 
     text = c.beginText(50, y)
@@ -161,7 +153,7 @@ incident documentation, transparency, and response efficiency.
 
 
     # -------------------------
-    # 📸 IMAGE SECTION (FINAL FIX)
+    # IMAGE SECTION
     # -------------------------
 
     has_photo = False
@@ -172,37 +164,71 @@ incident documentation, transparency, and response efficiency.
         if os.path.exists(photo_path):
             has_photo = True
 
+
+    # -------------------------
+    # MAP (FINAL RELIABLE FIX)
+    # -------------------------
+
     has_map = False
-    map_path = ""
+    map_path = os.path.join(report_folder, f"map_{incident.id}.png")
 
     if incident.latitude and incident.longitude:
+
+        lat = incident.latitude
+        lon = incident.longitude
+
+        # ---- TRY GOOGLE ----
+        GOOGLE_MAPS_API_KEY = "YOUR_API_KEY_HERE"
+
         try:
-            lat = incident.latitude
-            lon = incident.longitude
+            google_url = (
+                f"https://maps.googleapis.com/maps/api/staticmap"
+                f"?center={lat},{lon}"
+                f"&zoom=17"
+                f"&size=600x300"
+                f"&markers=color:red%7C{lat},{lon}"
+                f"&key={GOOGLE_MAPS_API_KEY}"
+            )
 
-            map_url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=17&size=600x300&markers={lat},{lon},red-pushpin"
-            map_path = os.path.join(report_folder, f"map_{incident.id}.png")
+            response = requests.get(google_url, timeout=10)
 
-            headers = {"User-Agent": "Mozilla/5.0"}
-            response = requests.get(map_url, headers=headers, timeout=10)
-
-            if response.status_code == 200 and len(response.content) > 1000:
+            if response.status_code == 200 and len(response.content) > 5000:
                 with open(map_path, "wb") as f:
                     f.write(response.content)
-
-                if os.path.exists(map_path):
-                    has_map = True
+                has_map = True
 
         except Exception as e:
-            print("Map generation failed:", e)
+            print("Google map failed:", e)
+
+        # ---- FALLBACK (OSM) ----
+        if not has_map:
+            try:
+                osm_url = (
+                    f"https://staticmap.openstreetmap.de/staticmap.php"
+                    f"?center={lat},{lon}"
+                    f"&zoom=15"
+                    f"&size=600x300"
+                    f"&markers={lat},{lon},red"
+                )
+
+                response = requests.get(osm_url, timeout=10)
+
+                if response.status_code == 200:
+                    with open(map_path, "wb") as f:
+                        f.write(response.content)
+                    has_map = True
+
+            except Exception as e:
+                print("OSM fallback failed:", e)
 
 
-    # FORCE SPACE
+    # -------------------------
+    # DRAW IMAGES
+    # -------------------------
+
     if has_photo or has_map:
         ensure_space(220)
 
-
-    # SIDE-BY-SIDE DRAW
     img_width = 3 * inch
     img_height = 2 * inch
 
@@ -227,9 +253,9 @@ incident documentation, transparency, and response efficiency.
                     preserveAspectRatio=True
                 )
             except:
-                pass
+                print("Photo render failed")
 
-        if has_map:
+        if has_map and os.path.exists(map_path):
             try:
                 c.drawImage(
                     map_path,
@@ -238,8 +264,8 @@ incident documentation, transparency, and response efficiency.
                     width=img_width,
                     height=img_height
                 )
-            except:
-                pass
+            except Exception as e:
+                print("Map render failed:", e)
 
         y -= (img_height + 20)
 
@@ -248,22 +274,19 @@ incident documentation, transparency, and response efficiency.
     # FOOTER
     # -------------------------
 
-    c.setFont("Helvetica", 9)
+    local_time = datetime.now()
 
+    c.setFont("Helvetica", 9)
     c.drawString(
         50,
         40,
-        f"Report generated on {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"Report generated on {local_time.strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     c.save()
 
     return filepath
 
-
-# -------------------------
-# TEXT WRAPPER
-# -------------------------
 
 def split_text(text, length):
 

@@ -1,27 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
 
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 
 <title>Barangay Monitoring System</title>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 
+<style>
+
+/* ✅ GLOBAL IMPROVEMENTS */
+body {
+    background-color: #f5f7fa;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ✅ NAVBAR ENHANCEMENT */
+.navbar {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.navbar-brand {
+    font-weight: 600;
+    font-size: 18px;
+}
+
+/* ✅ CONTAINER IMPROVEMENT */
+.container {
+    max-width: 1100px;
+}
+
+/* ✅ MOBILE RESPONSIVENESS */
+@media (max-width: 768px) {
+
+    .navbar .container {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .navbar-brand {
+        font-size: 16px;
+        text-align: center;
+    }
+
+    .btn {
+        width: 100%;
+    }
+
+    .container {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+}
+
+/* ✅ FLASH MESSAGE POSITION */
+.alert {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    z-index: 9999;
+    min-width: 250px;
+}
+
+/* ✅ MAP RESPONSIVENESS */
+#map {
+    width: 100%;
+    height: 300px;
+    border-radius: 10px;
+}
+
+/* ✅ CARD UI (if used in pages) */
+.card {
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+/* ✅ IMAGE RESPONSIVENESS */
+img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+}
+
+</style>
+
 </head>
 
 <body>
 
+<!-- ✅ NAVBAR -->
 <nav class="navbar navbar-dark bg-dark">
-<div class="container">
+<div class="container d-flex justify-content-between align-items-center flex-wrap">
 <a class="navbar-brand">Barangay Monitoring System</a>
 <a href="/report" class="btn btn-warning">Report Incident</a>
 </div>
 </nav>
 
+<!-- ✅ FLASH MESSAGES -->
+<div class="container">
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} shadow">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+</div>
+
+<!-- ✅ MAIN CONTENT -->
 <div class="container mt-4">
 
 {% block content %}
@@ -31,6 +123,30 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+/* ✅ AUTO HIDE FLASH (1 SECOND) */
+setTimeout(() => {
+    let alerts = document.querySelectorAll('.alert');
+    alerts.forEach(a => {
+        a.style.transition = "opacity 0.5s ease";
+        a.style.opacity = "0";
+        setTimeout(() => a.remove(), 500);
+    });
+}, 1000);
+
+
+/* ✅ FIX LEAFLET MAP RENDER ON MOBILE */
+window.addEventListener("load", function() {
+    setTimeout(() => {
+        if (typeof map !== "undefined") {
+            map.invalidateSize();
+        }
+    }, 500);
+});
+
+</script>
 
 </body>
 
