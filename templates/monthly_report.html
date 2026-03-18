@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container mt-4">
+
+    <!-- HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold">📊 Monthly Incident Report</h3>
+
+        <div>
+            <a href="/dashboard" class="btn btn-primary btn-sm">Dashboard</a>
+            <a href="/archive" class="btn btn-secondary btn-sm">Archive</a>
+        </div>
+    </div>
+
+    <!-- 📊 GRAPH -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white fw-bold">
+            Incident Summary (This Month)
+        </div>
+
+        <div class="card-body text-center">
+
+            <div style="max-width: 500px; margin: auto; height: 300px;">
+                <canvas id="incidentChart"></canvas>
+            </div>
+
+        </div>
+    </div>
+
+
+    <!-- 📁 INCIDENTS -->
+    {% if grouped_incidents %}
+
+        {% for date, items in grouped_incidents.items() %}
+
+        <div class="card mb-4 shadow-sm border-0">
+
+            <!-- DATE HEADER -->
+            <div class="card-header bg-dark text-white fw-semibold d-flex justify-content-between">
+                <span>📅 {{ date }}</span>
+
+                <!-- COUNT -->
+                <span class="badge bg-light text-dark">
+                    {{ items|length }} incidents
+                </span>
+            </div>
+
+            <div class="card-body p-0">
+
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0 align-middle">
+
+                        <thead class="table-light">
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Description</th>
+                                <th>Location</th>
+                                <th>Status</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+
+                            {% for i in items %}
+                            <tr>
+
+                                <!-- ID -->
+                                <td class="fw-semibold text-primary">
+                                    #{{ i.id }}
+                                </td>
+
+                                <!-- TYPE -->
+                                <td>
+                                    <span class="badge bg-info text-dark">
+                                        {{ i.type }}
+                                    </span>
+                                </td>
+
+                                <!-- DESCRIPTION -->
+                                <td style="max-width: 250px;">
+                                    {{ i.description }}
+                                </td>
+
+                                <!-- LOCATION -->
+                                <td>
+                                    <small>
+                                        {{ i.latitude }}, {{ i.longitude }}
+                                    </small>
+                                    <br>
+                                    <a href="https://www.google.com/maps?q={{ i.latitude }},{{ i.longitude }}" target="_blank">
+                                        📍 View Map
+                                    </a>
+                                </td>
+
+                                <!-- 🔥 STATUS -->
+                                <td>
+                                    {% if i.status == "resolved" %}
+                                        <span class="badge bg-success">
+                                            ✔ Resolved
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-warning text-dark">
+                                            ⏳ Ongoing
+                                        </span>
+                                    {% endif %}
+                                </td>
+
+                                <!-- TIME -->
+                                <td>
+                                    {% if i.created_at %}
+                                        {{ i.created_at.strftime("%b %d, %Y") }}<br>
+                                        <small class="text-muted">
+                                            {{ i.created_at.strftime("%H:%M:%S") }}
+                                        </small>
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+
+                            </tr>
+                            {% endfor %}
+
+                        </tbody>
+
+                    </table>
+                </div>
+
+            </div>
+        </div>
+
+        {% endfor %}
+
+    {% else %}
+
+    <div class="alert alert-info text-center shadow-sm">
+        No incidents recorded this month.
+    </div>
+
+    {% endif %}
+
+</div>
+
+
+<!-- 📊 CHART -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    const ctx = document.getElementById('incidentChart').getContext('2d');
+
+    const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: {{ labels | tojson }},
+            datasets: [{
+                label: 'Incidents',
+                data: {{ values | tojson }},
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        precision: 0
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+</script>
+
+{% endblock %}

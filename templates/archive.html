@@ -3,71 +3,98 @@
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-3">
+    <h3>📁 Resolved Incidents Archive</h3>
 
-<h3>Resolved Incidents Archive</h3>
-
-<a href="/dashboard" class="btn btn-primary">
-Back to Dashboard
-</a>
-
+    <div>
+        <a href="/dashboard" class="btn btn-primary">Dashboard</a>
+        <a href="/monthly-report" class="btn btn-success">Monthly Report</a>
+    </div>
 </div>
 
-<table class="table table-bordered">
+<hr>
 
-<thead class="table-dark">
-<tr>
-<th>ID</th>
-<th>Type</th>
-<th>Description</th>
-<th>Coordinates</th>
-<th>Time</th>
-<th>Actions</th>
-</tr>
-</thead>
+{% if grouped_incidents %}
 
-<tbody>
+    {% for date, items in grouped_incidents.items() %}
 
-{% for i in incidents %}
+        <!-- 📅 DATE HEADER -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header bg-dark text-white">
+                📅 {{ date }}
+            </div>
 
-<tr>
+            <div class="card-body p-0">
 
-<td>{{ i.id }}</td>
+                <table class="table table-bordered mb-0">
 
-<td>{{ i.type }}</td>
+                    <thead class="table-secondary">
+                        <tr>
+                            <th>ID</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                            <th>Coordinates</th>
+                            <th>Time</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
 
-<td>{{ i.description }}</td>
+                    <tbody>
 
-<td>{{ i.latitude }}, {{ i.longitude }}</td>
+                        {% for i in items %}
+                        <tr>
 
-<td>
-{% if i.created_at %}
-{{ i.created_at.strftime("%Y-%m-%d %H:%M:%S") }}
+                            <td>{{ i.id }}</td>
+
+                            <td>{{ i.type }}</td>
+
+                            <td>{{ i.description }}</td>
+
+                            <td>
+                                {{ i.latitude }}, {{ i.longitude }}<br>
+                                <a href="https://www.google.com/maps?q={{ i.latitude }},{{ i.longitude }}" target="_blank">
+                                    View Map
+                                </a>
+                            </td>
+
+                            <td>
+                                {% if i.created_at %}
+                                    {{ i.created_at.strftime("%Y-%m-%d %H:%M:%S") }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <form method="POST"
+                                      action="/delete_incident/{{ i.id }}"
+                                      style="display:inline;"
+                                      onsubmit="return confirm('Delete this archived incident permanently?')">
+
+                                    <button class="btn btn-sm btn-danger">
+                                        🗑
+                                    </button>
+
+                                </form>
+                            </td>
+
+                        </tr>
+                        {% endfor %}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+        </div>
+
+    {% endfor %}
+
 {% else %}
-N/A
+
+<div class="alert alert-info text-center">
+    No archived incidents available.
+</div>
+
 {% endif %}
-</td>
-
-<td>
-
-<form method="POST"
-action="/delete_incident/{{ i.id }}"
-style="display:inline;"
-onsubmit="return confirm('Delete this archived incident permanently?')">
-
-<button class="btn btn-sm btn-danger">
-🗑
-</button>
-
-</form>
-
-</td>
-
-</tr>
-
-{% endfor %}
-
-</tbody>
-
-</table>
 
 {% endblock %}
