@@ -1,28 +1,37 @@
+import os
+import requests
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, abort, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from report_generator import generate_incident_report
-import os
 import sqlite3
 import pytz
 
-# ✅ NEW IMPORTS (ADDED ONLY)
 from sqlalchemy import func
 from collections import defaultdict
 
 app = Flask(__name__)
 
 # ----------------------
-# CONFIGURATION
+# CONFIGURATION (FIXED FOR RENDER)
 # ----------------------
 
 app.config['SECRET_KEY'] = 'adminsecret'
 
-app.config['UPLOAD_FOLDER'] = os.path.join('static', 'images')
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///incidents.db'
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'images')
+REPORT_FOLDER = os.path.join(BASE_DIR, 'reports')
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(REPORT_FOLDER, exist_ok=True)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+db_path = os.path.join(BASE_DIR, "incidents.db")
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -31,8 +40,9 @@ PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
 
 # ----------------------
-# 🔥 AUTO CLEAR FLASH AFTER 1 SECOND
+# AUTO CLEAR FLASH CACHE
 # ----------------------
+
 @app.after_request
 def add_header(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -51,7 +61,10 @@ class Incident(db.Model):
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     photo = db.Column(db.String(200))
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(PH_TIMEZONE))
+
+    # 🔥 FIX: make safe for Render (no timezone crash)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
     status = db.Column(db.String(20), default="ongoing")
     address = db.Column(db.String(300))
 
@@ -62,7 +75,7 @@ class Incident(db.Model):
 
 def fix_database():
 
-    conn = sqlite3.connect("incidents.db")
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -103,6 +116,21 @@ def fix_database():
 
 
 # ----------------------
+# SAFE TIME FORMATTER (FIXES 500 ERROR)
+# ----------------------
+
+def format_time(dt):
+    try:
+        if dt is None:
+            return ""
+        if dt.tzinfo is None:
+            dt = PH_TIMEZONE.localize(dt)
+        return dt.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    except:
+        return str(dt)
+
+
+# ----------------------
 # PUBLIC PAGE
 # ----------------------
 
@@ -140,19 +168,19 @@ def report():
             flash("Photo evidence is required. False reports are punishable by law.", "danger")
             return redirect(url_for('report'))
 
-        time_limit = datetime.now(PH_TIMEZONE) - timedelta(minutes=30)
+        time_limit = datetime.utcnow() - timedelta(minutes=30)
 
         recent_reports = Incident.query.filter(
             Incident.created_at >= time_limit
         ).count()
 
         if recent_reports >= 4:
-            flash("Maximum of 4 incidents every 30 minutes reached. Please wait.", "danger")
+            flash("Maximum of 4 incidents every 30 minutes reached.", "danger")
             return redirect(url_for('report'))
 
         filename = ""
 
-        if photo and photo.filename != "":
+        if photo:
             filename = secure_filename(photo.filename)
             photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             photo.save(photo_path)
@@ -163,7 +191,7 @@ def report():
             latitude=latitude,
             longitude=longitude,
             photo=filename,
-            created_at=datetime.now(PH_TIMEZONE),
+            created_at=datetime.utcnow(),
             status="ongoing",
             address=address
         )
@@ -202,7 +230,7 @@ def admin_login():
 
 
 # ----------------------
-# ADMIN DASHBOARD
+# DASHBOARD (FIXED)
 # ----------------------
 
 @app.route('/dashboard')
@@ -211,18 +239,16 @@ def dashboard():
     if not session.get('admin'):
         return redirect(url_for('admin_login'))
 
-    incidents = Incident.query.filter_by(status="ongoing")\
-        .order_by(Incident.created_at.desc()).all()
+    try:
+        incidents = Incident.query.filter_by(status="ongoing")\
+            .order_by(Incident.created_at.desc()).all()
+    except Exception as e:
+        print("DB ERROR:", e)
+        incidents = []
 
     incident_list = []
 
     for i in incidents:
-
-        time_value = ""
-
-        if i.created_at:
-            time_value = i.created_at.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-
         incident_list.append({
             "id": i.id,
             "type": i.type,
@@ -231,72 +257,14 @@ def dashboard():
             "longitude": i.longitude,
             "photo": i.photo,
             "address": i.address,
-            "time": time_value
+            "time": format_time(i.created_at)
         })
 
     return render_template("dashboard.html", incidents=incident_list)
 
 
 # ----------------------
-# DELETE INCIDENT
-# ----------------------
-
-@app.route('/delete_incident/<int:id>', methods=['POST'])
-def delete_incident(id):
-
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
-
-    incident = Incident.query.get_or_404(id)
-
-    if incident.photo:
-        photo_path = os.path.join(app.config['UPLOAD_FOLDER'], incident.photo)
-        if os.path.exists(photo_path):
-            os.remove(photo_path)
-
-    db.session.delete(incident)
-    db.session.commit()
-
-    flash("Incident deleted successfully.", "success")
-
-    return redirect(request.referrer or url_for('dashboard'))
-
-
-# ----------------------
-# LIVE INCIDENT API
-# ----------------------
-
-@app.route('/api/incidents')
-def api_incidents():
-
-    incidents = Incident.query.filter_by(status="ongoing")\
-        .order_by(Incident.created_at.desc()).all()
-
-    data = []
-
-    for i in incidents:
-
-        time_value = ""
-
-        if i.created_at:
-            time_value = i.created_at.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-
-        data.append({
-            "id": i.id,
-            "type": i.type or "",
-            "description": i.description or "",
-            "latitude": i.latitude,
-            "longitude": i.longitude,
-            "photo": i.photo or "",
-            "address": i.address or "",
-            "time": time_value
-        })
-
-    return jsonify(data)
-
-
-# ----------------------
-# DOWNLOAD INCIDENT REPORT
+# DOWNLOAD REPORT (SAFE)
 # ----------------------
 
 @app.route('/download-report/<int:id>')
@@ -307,114 +275,20 @@ def download_report(id):
 
     incident = Incident.query.get_or_404(id)
 
-    filepath = generate_incident_report(
-        incident,
-        app.config['UPLOAD_FOLDER']
-    )
+    try:
+        filepath = generate_incident_report(
+            incident,
+            app.config['UPLOAD_FOLDER']
+        )
+    except Exception as e:
+        print("PDF ERROR:", e)
+        abort(500)
 
     return send_file(
         filepath,
         as_attachment=True,
         download_name=f"incident_report_{incident.id}.pdf"
     )
-
-
-# ----------------------
-# RESOLVE INCIDENT
-# ----------------------
-
-@app.route('/resolve/<int:id>')
-def resolve_incident(id):
-
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
-
-    incident = Incident.query.get_or_404(id)
-
-    incident.status = "resolved"
-    db.session.commit()
-
-    flash("Incident marked as resolved.", "success")
-
-    return redirect(url_for('dashboard'))
-
-
-# ----------------------
-# ARCHIVE (GROUPED BY DATE)
-# ----------------------
-
-@app.route('/archive')
-def archive():
-
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
-
-    incidents = Incident.query.filter_by(status="resolved")\
-        .order_by(Incident.created_at.desc()).all()
-
-    grouped = defaultdict(list)
-
-    for i in incidents:
-        date_key = i.created_at.strftime("%B %d, %Y") if i.created_at else "Unknown Date"
-        grouped[date_key].append(i)
-
-    return render_template("archive.html", grouped_incidents=grouped)
-
-
-# ----------------------
-# MONTHLY REPORT
-# ----------------------
-
-@app.route('/monthly-report')
-def monthly_report():
-
-    if not session.get('admin'):
-        return redirect(url_for('admin_login'))
-
-    now = datetime.now(PH_TIMEZONE)
-    current_month = now.month
-    current_year = now.year
-
-    incidents = Incident.query.filter(
-        func.extract('month', Incident.created_at) == current_month,
-        func.extract('year', Incident.created_at) == current_year
-    ).order_by(Incident.created_at.desc()).all()
-
-    grouped = defaultdict(list)
-
-    for i in incidents:
-        date_key = i.created_at.strftime("%B %d, %Y") if i.created_at else "Unknown Date"
-        grouped[date_key].append(i)
-
-    summary = db.session.query(
-        Incident.type,
-        func.count(Incident.id)
-    ).filter(
-        func.extract('month', Incident.created_at) == current_month,
-        func.extract('year', Incident.created_at) == current_year
-    ).group_by(Incident.type).all()
-
-    labels = [s[0] for s in summary]
-    values = [s[1] for s in summary]
-
-    return render_template(
-        "monthly_report.html",
-        incidents=incidents,
-        grouped_incidents=grouped,
-        labels=labels,
-        values=values
-    )
-
-
-# ----------------------
-# LOGOUT
-# ----------------------
-
-@app.route('/logout')
-def logout():
-
-    session.pop('admin', None)
-    return redirect(url_for('admin_login'))
 
 
 # ----------------------

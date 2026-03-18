@@ -128,17 +128,17 @@ def generate_incident_report(incident, upload_folder):
     y -= 20
 
     narrative = f"""
-On {time_value}, an incident categorized as "{incident.type}" was officially reported through the Municipal Incident Reporting System. The report was captured and recorded in real-time, ensuring prompt visibility for monitoring and potential response by the concerned authorities.
+On {time_value}, an incident categorized as "{incident.type}" was officially reported through the Municipal Incident Reporting System. The report was captured in real-time to ensure timely awareness and response.
 
-The incident was reported at the location identified as {address}. Based on geospatial data, the exact coordinates of the incident are {incident.latitude}, {incident.longitude}. This precise location information supports accurate mapping, situational awareness, and response planning.
+The incident occurred at {address}, with coordinates recorded as {incident.latitude}, {incident.longitude}. This allows accurate mapping and location tracking.
 
-According to the reporting individual, the incident is described as follows:
+The reporting individual described the situation as:
 
 "{description}"
 
-To support the validity of the report, photographic evidence was submitted through the system. Additionally, a map representation of the pinned location has been generated and included in this document to assist authorities in visualizing the exact area of the incident.
+Supporting photo evidence has been attached, and a map visualization of the location is included for reference.
 
-This report is generated as part of the municipality's initiative to strengthen incident documentation, improve transparency, and enhance overall emergency response efficiency.
+This document serves as an official record to assist in monitoring, verification, and response operations.
 """
 
     text = c.beginText(50, y)
@@ -166,64 +166,49 @@ This report is generated as part of the municipality's initiative to strengthen 
 
 
     # -------------------------
-    # MAP (FINAL RELIABLE FIX)
+    # 🗺 MAP FIX (RENDER SAFE)
     # -------------------------
 
     has_map = False
     map_path = os.path.join(report_folder, f"map_{incident.id}.png")
 
     if incident.latitude and incident.longitude:
-
-        lat = incident.latitude
-        lon = incident.longitude
-
-        # ---- TRY GOOGLE ----
-        GOOGLE_MAPS_API_KEY = "YOUR_API_KEY_HERE"
-
         try:
-            google_url = (
-                f"https://maps.googleapis.com/maps/api/staticmap"
+            lat = float(incident.latitude)
+            lon = float(incident.longitude)
+
+            # 🔥 Reliable static map (no API key needed)
+            map_url = (
+                f"https://staticmap.openstreetmap.de/staticmap.php"
                 f"?center={lat},{lon}"
                 f"&zoom=17"
                 f"&size=600x300"
-                f"&markers=color:red%7C{lat},{lon}"
-                f"&key={GOOGLE_MAPS_API_KEY}"
+                f"&markers={lat},{lon},red-pushpin"
             )
 
-            response = requests.get(google_url, timeout=10)
+            response = requests.get(
+                map_url,
+                timeout=5
+            )
 
-            if response.status_code == 200 and len(response.content) > 5000:
+            # ✅ Strict validation
+            if (
+                response.status_code == 200 and
+                response.content and
+                len(response.content) > 2000
+            ):
                 with open(map_path, "wb") as f:
                     f.write(response.content)
-                has_map = True
 
-        except Exception as e:
-            print("Google map failed:", e)
-
-        # ---- FALLBACK (OSM) ----
-        if not has_map:
-            try:
-                osm_url = (
-                    f"https://staticmap.openstreetmap.de/staticmap.php"
-                    f"?center={lat},{lon}"
-                    f"&zoom=15"
-                    f"&size=600x300"
-                    f"&markers={lat},{lon},red"
-                )
-
-                response = requests.get(osm_url, timeout=10)
-
-                if response.status_code == 200:
-                    with open(map_path, "wb") as f:
-                        f.write(response.content)
+                if os.path.exists(map_path):
                     has_map = True
 
-            except Exception as e:
-                print("OSM fallback failed:", e)
+        except Exception as e:
+            print("MAP ERROR:", e)
 
 
     # -------------------------
-    # DRAW IMAGES
+    # DRAW IMAGES SIDE-BY-SIDE
     # -------------------------
 
     if has_photo or has_map:
@@ -252,10 +237,10 @@ This report is generated as part of the municipality's initiative to strengthen 
                     height=img_height,
                     preserveAspectRatio=True
                 )
-            except:
-                print("Photo render failed")
+            except Exception as e:
+                print("PHOTO ERROR:", e)
 
-        if has_map and os.path.exists(map_path):
+        if has_map:
             try:
                 c.drawImage(
                     map_path,
@@ -265,7 +250,7 @@ This report is generated as part of the municipality's initiative to strengthen 
                     height=img_height
                 )
             except Exception as e:
-                print("Map render failed:", e)
+                print("MAP DRAW ERROR:", e)
 
         y -= (img_height + 20)
 
@@ -274,19 +259,21 @@ This report is generated as part of the municipality's initiative to strengthen 
     # FOOTER
     # -------------------------
 
-    local_time = datetime.now()
-
     c.setFont("Helvetica", 9)
     c.drawString(
         50,
         40,
-        f"Report generated on {local_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     c.save()
 
     return filepath
 
+
+# -------------------------
+# TEXT WRAPPER
+# -------------------------
 
 def split_text(text, length):
 
@@ -295,7 +282,6 @@ def split_text(text, length):
     current = ""
 
     for word in words:
-
         if len(current + " " + word) <= length:
             current += " " + word
         else:
