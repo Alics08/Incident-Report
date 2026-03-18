@@ -5,7 +5,11 @@ from datetime import datetime, timedelta
 from report_generator import generate_incident_report
 import os
 import sqlite3
-import pytz  # ✅ ADDED FOR TIME ACCURACY
+import pytz
+
+# ✅ NEW IMPORTS (ADDED ONLY)
+from sqlalchemy import func
+from collections import defaultdict
 
 app = Flask(__name__)
 
@@ -23,7 +27,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ✅ PH TIMEZONE
 PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
 # ----------------------
@@ -33,21 +36,13 @@ PH_TIMEZONE = pytz.timezone("Asia/Manila")
 class Incident(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
-
     type = db.Column(db.String(100))
-
     description = db.Column(db.String(300))
-
     latitude = db.Column(db.Float)
-
     longitude = db.Column(db.Float)
-
     photo = db.Column(db.String(200))
-
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(PH_TIMEZONE))  # ✅ FIXED TIME
-
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(PH_TIMEZONE))
     status = db.Column(db.String(20), default="ongoing")
-
     address = db.Column(db.String(300))
 
 
@@ -98,7 +93,7 @@ def fix_database():
 
 
 # ----------------------
-# PUBLIC PAGE (DEFAULT)
+# PUBLIC PAGE
 # ----------------------
 
 @app.route('/')
@@ -107,7 +102,7 @@ def home():
 
 
 # ----------------------
-# REPORT INCIDENT (PUBLIC)
+# REPORT INCIDENT
 # ----------------------
 
 @app.route('/report', methods=['GET','POST'])
@@ -131,14 +126,10 @@ def report():
 
         photo = request.files.get('photo')
 
-        # ✅ REQUIRE PHOTO
         if not photo or photo.filename == "":
             flash("Photo evidence is required. False reports are punishable by law.", "danger")
             return redirect(url_for('report'))
 
-        # -----------------------------
-        # RATE LIMIT (4 PER 30 MIN)
-        # -----------------------------
         time_limit = datetime.now(PH_TIMEZONE) - timedelta(minutes=30)
 
         recent_reports = Incident.query.filter(
@@ -162,7 +153,7 @@ def report():
             latitude=latitude,
             longitude=longitude,
             photo=filename,
-            created_at=datetime.now(PH_TIMEZONE),  # ✅ FIXED TIME
+            created_at=datetime.now(PH_TIMEZONE),
             status="ongoing",
             address=address
         )
@@ -191,7 +182,6 @@ def admin_login():
         password = request.form.get('password')
 
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-
             session['admin'] = True
             return redirect(url_for('dashboard'))
 
@@ -235,7 +225,7 @@ def dashboard():
 
 
 # ----------------------
-# DELETE INCIDENT (ADMIN)
+# DELETE INCIDENT
 # ----------------------
 
 @app.route('/delete_incident/<int:id>', methods=['POST'])
@@ -246,7 +236,6 @@ def delete_incident(id):
 
     incident = Incident.query.get_or_404(id)
 
-    # delete photo
     if incident.photo:
         photo_path = os.path.join(app.config['UPLOAD_FOLDER'], incident.photo)
         if os.path.exists(photo_path):
@@ -294,7 +283,7 @@ def api_incidents():
 
 
 # ----------------------
-# DOWNLOAD INCIDENT REPORT (PDF)
+# DOWNLOAD INCIDENT REPORT
 # ----------------------
 
 @app.route('/download-report/<int:id>')
@@ -330,14 +319,13 @@ def resolve_incident(id):
     incident = Incident.query.get_or_404(id)
 
     incident.status = "resolved"
-
     db.session.commit()
 
     return redirect(url_for('dashboard'))
 
 
 # ----------------------
-# ARCHIVE PAGE
+# ARCHIVE (GROUPED BY DATE)
 # ----------------------
 
 @app.route('/archive')
@@ -349,7 +337,59 @@ def archive():
     incidents = Incident.query.filter_by(status="resolved")\
         .order_by(Incident.created_at.desc()).all()
 
-    return render_template("archive.html", incidents=incidents)
+    grouped = defaultdict(list)
+
+    for i in incidents:
+        date_key = i.created_at.strftime("%B %d, %Y") if i.created_at else "Unknown Date"
+        grouped[date_key].append(i)
+
+    return render_template("archive.html", grouped_incidents=grouped)
+
+
+# ----------------------
+# 📊 MONTHLY REPORT (SYNCED WITH ARCHIVE)
+# ----------------------
+
+@app.route('/monthly-report')
+def monthly_report():
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    current_month = datetime.now(PH_TIMEZONE).month
+    current_year = datetime.now(PH_TIMEZONE).year
+
+    incidents = Incident.query.filter(
+        func.extract('month', Incident.created_at) == current_month,
+        func.extract('year', Incident.created_at) == current_year
+    ).order_by(Incident.created_at.desc()).all()
+
+    # ✅ GROUP LIKE ARCHIVE
+    grouped = defaultdict(list)
+
+    for i in incidents:
+        date_key = i.created_at.strftime("%B %d, %Y") if i.created_at else "Unknown Date"
+        grouped[date_key].append(i)
+
+    # ✅ GRAPH DATA
+    summary = db.session.query(
+        Incident.type,
+        func.count(Incident.id)
+    ).filter(
+        func.extract('month', Incident.created_at) == current_month,
+        func.extract('year', Incident.created_at) == current_year
+    ).group_by(Incident.type).all()
+
+    labels = [s[0] for s in summary]
+    values = [s[1] for s in summary]
+
+    return render_template(
+        "monthly_report.html",
+        incidents=incidents,
+        grouped_incidents=grouped,  # ✅ KEY SYNC
+        labels=labels,
+        values=values
+    )
 
 
 # ----------------------
@@ -360,7 +400,6 @@ def archive():
 def logout():
 
     session.pop('admin', None)
-
     return redirect(url_for('admin_login'))
 
 

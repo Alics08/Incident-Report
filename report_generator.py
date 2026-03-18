@@ -1,4 +1,5 @@
 import os
+import requests
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -7,7 +8,6 @@ from datetime import datetime
 
 def generate_incident_report(incident, upload_folder):
 
-    # Create reports folder if not exists
     report_folder = "reports"
     os.makedirs(report_folder, exist_ok=True)
 
@@ -18,6 +18,12 @@ def generate_incident_report(incident, upload_folder):
 
     width, height = A4
     y = height - 50
+
+    def ensure_space(required_space):
+        nonlocal y
+        if y < required_space:
+            c.showPage()
+            y = height - 50
 
 
     # -------------------------
@@ -113,7 +119,7 @@ def generate_incident_report(incident, upload_folder):
 
 
     # -------------------------
-    # DETAILED NARRATIVE
+    # DETAILED REPORT
     # -------------------------
 
     c.setFont("Helvetica-Bold", 12)
@@ -122,23 +128,25 @@ def generate_incident_report(incident, upload_folder):
     y -= 20
 
     narrative = f"""
-On {time_value}, an incident categorized as "{incident.type}" was reported through the
-Municipal Incident Reporting System.
+On {time_value}, a report classified under "{incident.type}" was formally submitted
+through the Municipal Incident Reporting System. The system captured the report
+in real-time, ensuring immediate availability for monitoring and response.
 
-The report indicates that the event occurred at {address}. The system recorded
-the geographic coordinates of the location as {incident.latitude}, {incident.longitude}.
+The reported incident is associated with the location identified as {address}.
+Geospatial verification confirms the coordinates at {incident.latitude}, {incident.longitude},
+which have been recorded to support accurate mapping and response planning.
 
-According to the submitted report description:
+Based on the information provided by the reporting individual, the situation is described as follows:
 
 "{description}"
 
-The reporting individual also provided photographic evidence through the system
-to support the incident report. This information has been logged and made available
-for monitoring, verification, and response coordination by the responsible
-government authorities.
+To strengthen the credibility of the report, the user submitted photographic
+evidence through the system. Additionally, the exact pinned map location has been
+captured and included in this report to assist authorities in visualizing the
+incident area more effectively.
 
-Further investigation or response actions may be conducted depending on the
-nature and severity of the reported incident.
+This report is generated as part of the municipality's initiative to improve
+incident documentation, transparency, and response efficiency.
 """
 
     text = c.beginText(50, y)
@@ -153,33 +161,87 @@ nature and severity of the reported incident.
 
 
     # -------------------------
-    # PHOTO EVIDENCE
+    # 📸 IMAGE SECTION (FINAL FIX)
     # -------------------------
 
+    has_photo = False
+    photo_path = ""
+
     if incident.photo:
-
         photo_path = os.path.join(upload_folder, incident.photo)
-
         if os.path.exists(photo_path):
+            has_photo = True
 
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(50, y, "Photo Evidence")
+    has_map = False
+    map_path = ""
 
-            y -= 20
+    if incident.latitude and incident.longitude:
+        try:
+            lat = incident.latitude
+            lon = incident.longitude
 
+            map_url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom=17&size=600x300&markers={lat},{lon},red-pushpin"
+            map_path = os.path.join(report_folder, f"map_{incident.id}.png")
+
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(map_url, headers=headers, timeout=10)
+
+            if response.status_code == 200 and len(response.content) > 1000:
+                with open(map_path, "wb") as f:
+                    f.write(response.content)
+
+                if os.path.exists(map_path):
+                    has_map = True
+
+        except Exception as e:
+            print("Map generation failed:", e)
+
+
+    # FORCE SPACE
+    if has_photo or has_map:
+        ensure_space(220)
+
+
+    # SIDE-BY-SIDE DRAW
+    img_width = 3 * inch
+    img_height = 2 * inch
+
+    x_photo = 50
+    x_map = 320
+
+    if has_photo or has_map:
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Photo Evidence & Location Map")
+
+        y -= 15
+
+        if has_photo:
             try:
-
                 c.drawImage(
                     photo_path,
-                    50,
-                    y - 200,
-                    width=4 * inch,
-                    height=3 * inch,
+                    x_photo,
+                    y - img_height,
+                    width=img_width,
+                    height=img_height,
                     preserveAspectRatio=True
                 )
-
             except:
                 pass
+
+        if has_map:
+            try:
+                c.drawImage(
+                    map_path,
+                    x_map,
+                    y - img_height,
+                    width=img_width,
+                    height=img_height
+                )
+            except:
+                pass
+
+        y -= (img_height + 20)
 
 
     # -------------------------
@@ -197,7 +259,6 @@ nature and severity of the reported incident.
     c.save()
 
     return filepath
-
 
 
 # -------------------------
