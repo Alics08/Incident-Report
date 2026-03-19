@@ -85,7 +85,7 @@ Open Camera
 
 </div>
 
-<video id="camera" width="320" height="240" autoplay style="border:1px solid #ccc"></video>
+<video id="camera" width="100%" autoplay style="border:1px solid #ccc"></video>
 
 <br>
 
@@ -108,11 +108,10 @@ Close Camera
 
 <input type="hidden" id="latitude" name="latitude">
 <input type="hidden" id="longitude" name="longitude">
-
 <input type="hidden" id="address" name="address">
 
 
-<button class="btn btn-primary">
+<button class="btn btn-primary w-100">
 Submit Incident
 </button>
 
@@ -154,76 +153,63 @@ modal.show();
 
 setTimeout(function(){
 modal.hide();
-},4000);
+},1000); // ✅ 1 SECOND ONLY
 
 }
 
 
-window.onload = function(){
-
-showModal("Please pin the exact incident location on the map before submitting your report.");
-
-};
+/* ❌ REMOVED AUTO POPUP ON LOAD */
 
 
+/* DESCRIPTION SYSTEM (UNCHANGED) */
 
 const descriptions = {
-
 "Fire":[
 "Large fire reported in a residential area with visible smoke and flames rising from a structure.",
 "Possible electrical fire inside a building causing heavy smoke and immediate danger.",
 "Fire spreading rapidly between houses and may require immediate fire response.",
 "Strong burning smell and visible smoke coming from a nearby building."
 ],
-
 "Medical Emergency":[
 "Person collapsed and appears unconscious, immediate medical assistance needed.",
 "Individual experiencing severe chest pain and difficulty breathing.",
 "Serious injury observed and urgent ambulance assistance required.",
 "Person suffering possible stroke or seizure."
 ],
-
 "Crime":[
 "Robbery reported in the area with suspect possibly fleeing the scene.",
 "Physical altercation between individuals causing disturbance.",
 "Possible theft or burglary currently taking place.",
 "Suspicious individuals attempting to break into a property."
 ],
-
 "Accident":[
 "Vehicle collision on the road involving multiple vehicles.",
 "Motorcycle accident with possible injuries requiring assistance.",
 "Pedestrian involved in a traffic accident.",
 "Overturned vehicle blocking traffic."
 ],
-
 "Flood":[
 "Water level rising quickly in the community and starting to flood houses.",
 "Flooded road making transportation difficult.",
 "Heavy rainfall causing severe street flooding.",
 "Drainage overflow causing flooding in nearby houses."
 ],
-
 "Landslide":[
 "Soil movement observed along hillside causing road blockage.",
 "Large amount of soil and rocks sliding down the slope.",
 "Possible landslide threatening nearby homes."
 ],
-
 "Missing Person":[
 "Child reported missing and last seen in the area.",
 "Elderly person cannot be located and may require search assistance.",
 "Person missing under suspicious circumstances."
 ],
-
 "Suspicious Activity":[
 "Unknown person loitering around houses and observing properties.",
 "Suspicious vehicle parked for a long time with unknown occupants.",
 "Strangers acting suspiciously in the neighborhood."
 ]
-
 };
-
 
 
 document.getElementById("incidentType").addEventListener("change", function(){
@@ -234,45 +220,35 @@ let suggestionBox = document.getElementById("suggestions");
 suggestionBox.innerHTML = "";
 
 if(descriptions[type]){
-
 descriptions[type].forEach(function(text){
-
 let option = document.createElement("option");
-
 option.value = text;
 option.text = text;
-
 suggestionBox.appendChild(option);
-
 });
-
 }
 
 });
 
 
 document.getElementById("suggestions").addEventListener("change", function(){
-
 document.getElementById("description").value = this.value;
-
 });
 
 
+/* MAP */
 
 var map = L.map('map').setView([14.5995,120.9842],13);
-
 
 var satellite = L.tileLayer(
 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 { attribution:'Tiles © Esri' }
 ).addTo(map);
 
-
 var street = L.tileLayer(
 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 { attribution:'© OpenStreetMap' }
 );
-
 
 L.control.layers({
 "Satellite": satellite,
@@ -284,49 +260,45 @@ var marker;
 let locationPinned = false;
 
 
+/* GEOLOCATION SAFE */
+
 if(navigator.geolocation){
-
 navigator.geolocation.getCurrentPosition(function(position){
-
 let lat = position.coords.latitude;
 let lon = position.coords.longitude;
-
 map.setView([lat,lon],17);
-
 marker = L.marker([lat,lon]).addTo(map);
-
 });
-
 }
 
+
+/* ADDRESS DETECTION SAFE */
 
 async function detectAddress(lat,lon){
 
 try{
-
 let response = await fetch(
 `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`
 );
 
 let data = await response.json();
 
-let addr = data.address || {};
+if(!data || !data.address) return;
+
+let addr = data.address;
 
 let street = addr.road || "";
 let barangay = addr.suburb || addr.village || addr.neighbourhood || "";
 let city = addr.city || addr.town || addr.municipality || "";
 
 let full = street;
-
 if(barangay) full += ", " + barangay;
 if(city) full += ", " + city;
 
 document.getElementById("address").value = full;
 
 }catch(e){
-
 console.log("Address detection failed");
-
 }
 
 }
@@ -345,38 +317,29 @@ locationPinned = true;
 detectAddress(lat,lon);
 
 if(marker){
-
 marker.setLatLng(e.latlng);
-
 }else{
-
 marker = L.marker(e.latlng).addTo(map);
-
 }
 
 });
 
 
+/* VALIDATION (CRITICAL FIX FOR 500) */
+
 function validateForm(){
 
 if(!locationPinned){
-
 showModal("Please pin the exact incident location on the map before submitting.");
-
 return false;
-
 }
 
-/* PHOTO REQUIRED VALIDATION */
+/* LIMIT FILE SIZE (PREVENTS RENDER 500 ERROR) */
+let file = document.getElementById("photoUpload").files[0];
 
-let photo = document.getElementById("photoUpload").files.length;
-
-if(photo === 0){
-
-showModal("Photo evidence is REQUIRED. False or fraudulent emergency reports are punishable by law.");
-
+if(file && file.size > 5 * 1024 * 1024){
+showModal("Image too large. Max size is 5MB.");
 return false;
-
 }
 
 let type = document.getElementById("incidentType").value;
@@ -384,102 +347,74 @@ let type = document.getElementById("incidentType").value;
 showResponse(type);
 
 setTimeout(function(){
-
 document.querySelector("form").submit();
-
-},1500);
+},1000);
 
 return false;
 
 }
 
 
+/* RESPONSE */
+
 function showResponse(type){
 
 const messages = {
-
-"Fire":"Fire responders have been notified and are on the way to the reported location.",
-"Medical Emergency":"Emergency medical responders have been dispatched.",
-"Crime":"Police authorities have been alerted and units are responding.",
-"Accident":"Traffic and emergency responders are on their way.",
-"Flood":"Disaster response team has been notified.",
-"Landslide":"Rescue and disaster teams are responding.",
-"Missing Person":"Authorities have been notified about the missing person.",
-"Suspicious Activity":"Police patrol units have been alerted."
-
+"Fire":"Fire responders have been notified.",
+"Medical Emergency":"Medical responders dispatched.",
+"Crime":"Police alerted.",
+"Accident":"Emergency responders on the way.",
+"Flood":"Disaster team notified.",
+"Landslide":"Rescue team responding.",
+"Missing Person":"Authorities notified.",
+"Suspicious Activity":"Police patrol alerted."
 };
 
 if(messages[type]){
-
 showModal(messages[type]);
-
 }
 
 }
 
 
+/* CAMERA (UNCHANGED LOGIC) */
 
 let cameraStream = null;
 
 function openCamera(){
-
-showModal("Warning: Submitting false or fraudulent emergency reports is punishable by law.");
-
 startCamera("environment");
-
 }
-
 
 function startCamera(mode){
 
 navigator.mediaDevices.getUserMedia({ video:{ facingMode:mode } })
 
 .then(function(stream){
-
 cameraStream = stream;
-
 document.getElementById("cameraBox").style.display = "block";
-
 document.getElementById("camera").srcObject = stream;
-
 })
 
 .catch(function(){
-
 showModal("Camera not accessible.");
-
 });
 
 }
 
-
 function switchCamera(){
-
 let mode = document.getElementById("cameraSelect").value;
-
 if(cameraStream){
-
 cameraStream.getTracks().forEach(track => track.stop());
-
 }
-
 startCamera(mode);
-
 }
-
 
 function closeCamera(){
-
 if(cameraStream){
-
 cameraStream.getTracks().forEach(track => track.stop());
-
 }
-
 document.getElementById("cameraBox").style.display = "none";
-
 }
-
 
 function capturePhoto(){
 
@@ -497,30 +432,19 @@ canvas.toBlob(function(blob){
 let file = new File([blob], "camera.jpg", {type:"image/jpeg"});
 
 let container = new DataTransfer();
-
 container.items.add(file);
 
 document.getElementById("photoUpload").files = container.files;
 
-showModal("Photo captured. False reports are punishable by law.");
+showModal("Photo captured.");
 
 });
 
 if(cameraStream){
-
 cameraStream.getTracks().forEach(track => track.stop());
-
 }
 
 }
-
-
-document.getElementById("photoUpload").addEventListener("change",function(){
-
-showModal("Reminder: Submitting false emergency reports may lead to legal penalties.");
-
-});
-
 
 </script>
 

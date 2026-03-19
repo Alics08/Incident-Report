@@ -33,16 +33,17 @@ db_path = os.path.join(BASE_DIR, "incidents.db")
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# 🔥 FIX: limit upload size (prevents crash)
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB
+
 db = SQLAlchemy(app)
 
 PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
-
 # ----------------------
-# 🔥 FIX: RENDER PORT BIND (CRITICAL)
+# 🔥 FIX: RENDER PORT
 # ----------------------
 PORT = int(os.environ.get("PORT", 5000))
-
 
 # ----------------------
 # AUTO CLEAR FLASH CACHE
@@ -52,7 +53,6 @@ PORT = int(os.environ.get("PORT", 5000))
 def add_header(response):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
-
 
 # ----------------------
 # DATABASE MODEL
@@ -67,12 +67,10 @@ class Incident(db.Model):
     longitude = db.Column(db.Float)
     photo = db.Column(db.String(200))
 
-    # SAFE for Render
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     status = db.Column(db.String(20), default="ongoing")
     address = db.Column(db.String(300))
-
 
 # ----------------------
 # DATABASE FIX FUNCTION
@@ -119,7 +117,6 @@ def fix_database():
     conn.commit()
     conn.close()
 
-
 # ----------------------
 # SAFE TIME FORMATTER
 # ----------------------
@@ -134,7 +131,6 @@ def format_time(dt):
     except:
         return str(dt)
 
-
 # ----------------------
 # PUBLIC PAGE
 # ----------------------
@@ -143,9 +139,8 @@ def format_time(dt):
 def home():
     return redirect(url_for('report'))
 
-
 # ----------------------
-# REPORT INCIDENT
+# 🚨 FIXED REPORT INCIDENT (MAIN BUG FIX)
 # ----------------------
 
 @app.route('/report', methods=['GET','POST'])
@@ -153,62 +148,73 @@ def report():
 
     if request.method == "POST":
 
-        type = request.form.get('type')
-        description = request.form.get('description')
+        try:
+            type = request.form.get('type')
+            description = request.form.get('description')
 
-        latitude = request.form.get('latitude')
-        longitude = request.form.get('longitude')
+            latitude = request.form.get('latitude')
+            longitude = request.form.get('longitude')
 
-        address = request.form.get('address')
+            address = request.form.get('address')
 
-        if not latitude or not longitude:
+            if not latitude or not longitude:
+                flash("Location is required.", "danger")
+                return redirect(url_for('report'))
+
+            latitude = float(latitude)
+            longitude = float(longitude)
+
+            photo = request.files.get('photo')
+
+            if not photo or photo.filename == "":
+                flash("Photo evidence is required.", "danger")
+                return redirect(url_for('report'))
+
+            time_limit = datetime.utcnow() - timedelta(minutes=30)
+
+            recent_reports = Incident.query.filter(
+                Incident.created_at >= time_limit
+            ).count()
+
+            if recent_reports >= 4:
+                flash("Max 4 incidents per 30 minutes reached.", "danger")
+                return redirect(url_for('report'))
+
+            filename = ""
+
+            if photo:
+                filename = secure_filename(photo.filename)
+
+                # 🔥 FIX: prevent overwrite crash
+                unique_name = f"{int(datetime.utcnow().timestamp())}_{filename}"
+                photo_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
+
+                photo.save(photo_path)
+                filename = unique_name
+
+            incident = Incident(
+                type=type,
+                description=description,
+                latitude=latitude,
+                longitude=longitude,
+                photo=filename,
+                created_at=datetime.utcnow(),
+                status="ongoing",
+                address=address
+            )
+
+            db.session.add(incident)
+            db.session.commit()
+
+            flash("Incident submitted.", "success")
             return redirect(url_for('report'))
 
-        latitude = float(latitude)
-        longitude = float(longitude)
-
-        photo = request.files.get('photo')
-
-        if not photo or photo.filename == "":
-            flash("Photo evidence is required.", "danger")
+        except Exception as e:
+            print("❌ SUBMIT ERROR:", e)
+            flash("Server error. Please try again.", "danger")
             return redirect(url_for('report'))
-
-        time_limit = datetime.utcnow() - timedelta(minutes=30)
-
-        recent_reports = Incident.query.filter(
-            Incident.created_at >= time_limit
-        ).count()
-
-        if recent_reports >= 4:
-            flash("Max 4 incidents per 30 minutes reached.", "danger")
-            return redirect(url_for('report'))
-
-        filename = ""
-
-        if photo:
-            filename = secure_filename(photo.filename)
-            photo_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            photo.save(photo_path)
-
-        incident = Incident(
-            type=type,
-            description=description,
-            latitude=latitude,
-            longitude=longitude,
-            photo=filename,
-            created_at=datetime.utcnow(),
-            status="ongoing",
-            address=address
-        )
-
-        db.session.add(incident)
-        db.session.commit()
-
-        flash("Incident submitted.", "success")
-        return redirect(url_for('report'))
 
     return render_template("report.html")
-
 
 # ----------------------
 # ADMIN LOGIN
@@ -233,9 +239,8 @@ def admin_login():
 
     return render_template("login.html")
 
-
 # ----------------------
-# DASHBOARD (SAFE)
+# DASHBOARD
 # ----------------------
 
 @app.route('/dashboard')
@@ -267,9 +272,8 @@ def dashboard():
 
     return render_template("dashboard.html", incidents=incident_list)
 
-
 # ----------------------
-# DOWNLOAD REPORT (SAFE)
+# DOWNLOAD REPORT
 # ----------------------
 
 @app.route('/download-report/<int:id>')
@@ -294,7 +298,6 @@ def download_report(id):
         as_attachment=True,
         download_name=f"incident_report_{incident.id}.pdf"
     )
-
 
 # ----------------------
 # START APPLICATION
