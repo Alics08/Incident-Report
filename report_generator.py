@@ -8,7 +8,9 @@ from datetime import datetime
 
 def generate_incident_report(incident, upload_folder):
 
-    report_folder = "reports"
+    # 🔥 FIX: absolute path (RENDER SAFE)
+    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    report_folder = os.path.join(BASE_DIR, "reports")
     os.makedirs(report_folder, exist_ok=True)
 
     filename = f"incident_report_{incident.id}.pdf"
@@ -166,7 +168,7 @@ This document serves as an official record to assist in monitoring, verification
 
 
     # -------------------------
-    # 🗺 MAP FIX (RENDER SAFE)
+    # 🗺 MAP FIX (RENDER HARDENED)
     # -------------------------
 
     has_map = False
@@ -177,7 +179,6 @@ This document serves as an official record to assist in monitoring, verification
             lat = float(incident.latitude)
             lon = float(incident.longitude)
 
-            # 🔥 Reliable static map (no API key needed)
             map_url = (
                 f"https://staticmap.openstreetmap.de/staticmap.php"
                 f"?center={lat},{lon}"
@@ -188,20 +189,27 @@ This document serves as an official record to assist in monitoring, verification
 
             response = requests.get(
                 map_url,
-                timeout=5
+                timeout=8,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept": "image/png"
+                }
             )
 
-            # ✅ Strict validation
+            # ✅ STRICT VALIDATION (prevents blank PDF)
             if (
                 response.status_code == 200 and
+                response.headers.get("Content-Type", "").startswith("image") and
                 response.content and
-                len(response.content) > 2000
+                len(response.content) > 3000
             ):
                 with open(map_path, "wb") as f:
                     f.write(response.content)
 
-                if os.path.exists(map_path):
+                if os.path.exists(map_path) and os.path.getsize(map_path) > 3000:
                     has_map = True
+            else:
+                print("MAP FETCH INVALID")
 
         except Exception as e:
             print("MAP ERROR:", e)

@@ -31,12 +31,17 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 db_path = os.path.join(BASE_DIR, "incidents.db")
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
-
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
 PH_TIMEZONE = pytz.timezone("Asia/Manila")
+
+
+# ----------------------
+# 🔥 FIX: RENDER PORT BIND (CRITICAL)
+# ----------------------
+PORT = int(os.environ.get("PORT", 5000))
 
 
 # ----------------------
@@ -62,7 +67,7 @@ class Incident(db.Model):
     longitude = db.Column(db.Float)
     photo = db.Column(db.String(200))
 
-    # 🔥 FIX: make safe for Render (no timezone crash)
+    # SAFE for Render
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     status = db.Column(db.String(20), default="ongoing")
@@ -116,7 +121,7 @@ def fix_database():
 
 
 # ----------------------
-# SAFE TIME FORMATTER (FIXES 500 ERROR)
+# SAFE TIME FORMATTER
 # ----------------------
 
 def format_time(dt):
@@ -165,7 +170,7 @@ def report():
         photo = request.files.get('photo')
 
         if not photo or photo.filename == "":
-            flash("Photo evidence is required. False reports are punishable by law.", "danger")
+            flash("Photo evidence is required.", "danger")
             return redirect(url_for('report'))
 
         time_limit = datetime.utcnow() - timedelta(minutes=30)
@@ -175,7 +180,7 @@ def report():
         ).count()
 
         if recent_reports >= 4:
-            flash("Maximum of 4 incidents every 30 minutes reached.", "danger")
+            flash("Max 4 incidents per 30 minutes reached.", "danger")
             return redirect(url_for('report'))
 
         filename = ""
@@ -199,7 +204,7 @@ def report():
         db.session.add(incident)
         db.session.commit()
 
-        flash("Incident submitted successfully.", "success")
+        flash("Incident submitted.", "success")
         return redirect(url_for('report'))
 
     return render_template("report.html")
@@ -224,13 +229,13 @@ def admin_login():
             session['admin'] = True
             return redirect(url_for('dashboard'))
 
-        flash("Invalid login credentials.", "danger")
+        flash("Invalid login.", "danger")
 
     return render_template("login.html")
 
 
 # ----------------------
-# DASHBOARD (FIXED)
+# DASHBOARD (SAFE)
 # ----------------------
 
 @app.route('/dashboard')
@@ -301,4 +306,4 @@ if __name__ == "__main__":
         db.create_all()
         fix_database()
 
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=PORT)
