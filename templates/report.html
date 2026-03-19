@@ -143,22 +143,24 @@ Submit Incident
 
 <script>
 
+/* ✅ FIX: SINGLE MODAL INSTANCE (prevents silent failure) */
+let modalInstance = null;
+
 function showModal(message){
 
 document.getElementById("modalMessage").innerHTML = message;
 
-let modal = new bootstrap.Modal(document.getElementById("messageModal"));
-
-modal.show();
-
-setTimeout(function(){
-modal.hide();
-},1000); // ✅ 1 SECOND ONLY
-
+if(!modalInstance){
+modalInstance = new bootstrap.Modal(document.getElementById("messageModal"));
 }
 
+modalInstance.show();
 
-/* ❌ REMOVED AUTO POPUP ON LOAD */
+setTimeout(function(){
+modalInstance.hide();
+},1000);
+
+}
 
 
 /* DESCRIPTION SYSTEM (UNCHANGED) */
@@ -236,7 +238,7 @@ document.getElementById("description").value = this.value;
 });
 
 
-/* MAP */
+/* MAP (UNCHANGED) */
 
 var map = L.map('map').setView([14.5995,120.9842],13);
 
@@ -260,7 +262,7 @@ var marker;
 let locationPinned = false;
 
 
-/* GEOLOCATION SAFE */
+/* GEOLOCATION */
 
 if(navigator.geolocation){
 navigator.geolocation.getCurrentPosition(function(position){
@@ -272,7 +274,7 @@ marker = L.marker([lat,lon]).addTo(map);
 }
 
 
-/* ADDRESS DETECTION SAFE */
+/* ADDRESS */
 
 async function detectAddress(lat,lon){
 
@@ -325,7 +327,7 @@ marker = L.marker(e.latlng).addTo(map);
 });
 
 
-/* VALIDATION (CRITICAL FIX FOR 500) */
+/* VALIDATION */
 
 function validateForm(){
 
@@ -334,7 +336,6 @@ showModal("Please pin the exact incident location on the map before submitting."
 return false;
 }
 
-/* LIMIT FILE SIZE (PREVENTS RENDER 500 ERROR) */
 let file = document.getElementById("photoUpload").files[0];
 
 if(file && file.size > 5 * 1024 * 1024){
@@ -377,13 +378,24 @@ showModal(messages[type]);
 }
 
 
-/* CAMERA (UNCHANGED LOGIC) */
+/* ✅ RESTORED FALSE REPORT WARNINGS */
 
 let cameraStream = null;
 
 function openCamera(){
+
+showModal("⚠️ Warning: Submitting false emergency reports is punishable by law.");
+
 startCamera("environment");
+
 }
+
+document.getElementById("photoUpload").addEventListener("change",function(){
+
+showModal("⚠️ Reminder: False or fraudulent reports may lead to legal penalties.");
+
+});
+
 
 function startCamera(mode){
 

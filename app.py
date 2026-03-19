@@ -14,7 +14,7 @@ from collections import defaultdict
 app = Flask(__name__)
 
 # ----------------------
-# CONFIGURATION (FIXED FOR RENDER)
+# CONFIGURATION (UNCHANGED)
 # ----------------------
 
 app.config['SECRET_KEY'] = 'adminsecret'
@@ -33,20 +33,16 @@ db_path = os.path.join(BASE_DIR, "incidents.db")
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# 🔥 FIX: limit upload size (prevents crash)
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 
 db = SQLAlchemy(app)
 
 PH_TIMEZONE = pytz.timezone("Asia/Manila")
 
-# ----------------------
-# 🔥 FIX: RENDER PORT
-# ----------------------
 PORT = int(os.environ.get("PORT", 5000))
 
 # ----------------------
-# AUTO CLEAR FLASH CACHE
+# CACHE (UNCHANGED)
 # ----------------------
 
 @app.after_request
@@ -55,7 +51,7 @@ def add_header(response):
     return response
 
 # ----------------------
-# DATABASE MODEL
+# MODEL (UNCHANGED)
 # ----------------------
 
 class Incident(db.Model):
@@ -66,14 +62,12 @@ class Incident(db.Model):
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     photo = db.Column(db.String(200))
-
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
     status = db.Column(db.String(20), default="ongoing")
     address = db.Column(db.String(300))
 
 # ----------------------
-# DATABASE FIX FUNCTION
+# DB FIX (UNCHANGED)
 # ----------------------
 
 def fix_database():
@@ -118,7 +112,7 @@ def fix_database():
     conn.close()
 
 # ----------------------
-# SAFE TIME FORMATTER
+# TIME FIX (IMPORTANT)
 # ----------------------
 
 def format_time(dt):
@@ -126,13 +120,13 @@ def format_time(dt):
         if dt is None:
             return ""
         if dt.tzinfo is None:
-            dt = PH_TIMEZONE.localize(dt)
+            dt = pytz.utc.localize(dt)
         return dt.astimezone(PH_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
     except:
         return str(dt)
 
 # ----------------------
-# PUBLIC PAGE
+# HOME
 # ----------------------
 
 @app.route('/')
@@ -140,7 +134,7 @@ def home():
     return redirect(url_for('report'))
 
 # ----------------------
-# 🚨 FIXED REPORT INCIDENT (MAIN BUG FIX)
+# REPORT (RESTORED WARNING SUPPORT)
 # ----------------------
 
 @app.route('/report', methods=['GET','POST'])
@@ -151,14 +145,12 @@ def report():
         try:
             type = request.form.get('type')
             description = request.form.get('description')
-
             latitude = request.form.get('latitude')
             longitude = request.form.get('longitude')
-
             address = request.form.get('address')
 
             if not latitude or not longitude:
-                flash("Location is required.", "danger")
+                flash("Please pin location before submitting.", "danger")
                 return redirect(url_for('report'))
 
             latitude = float(latitude)
@@ -166,8 +158,9 @@ def report():
 
             photo = request.files.get('photo')
 
+            # 🔥 RESTORED STRONG WARNING
             if not photo or photo.filename == "":
-                flash("Photo evidence is required.", "danger")
+                flash("Photo evidence is REQUIRED. False reports are punishable by law.", "danger")
                 return redirect(url_for('report'))
 
             time_limit = datetime.utcnow() - timedelta(minutes=30)
@@ -177,27 +170,22 @@ def report():
             ).count()
 
             if recent_reports >= 4:
-                flash("Max 4 incidents per 30 minutes reached.", "danger")
+                flash("Maximum of 4 incidents every 30 minutes reached.", "danger")
                 return redirect(url_for('report'))
 
-            filename = ""
+            filename = secure_filename(photo.filename)
 
-            if photo:
-                filename = secure_filename(photo.filename)
+            unique_name = f"{int(datetime.utcnow().timestamp())}_{filename}"
+            photo_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
 
-                # 🔥 FIX: prevent overwrite crash
-                unique_name = f"{int(datetime.utcnow().timestamp())}_{filename}"
-                photo_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
-
-                photo.save(photo_path)
-                filename = unique_name
+            photo.save(photo_path)
 
             incident = Incident(
                 type=type,
                 description=description,
                 latitude=latitude,
                 longitude=longitude,
-                photo=filename,
+                photo=unique_name,
                 created_at=datetime.utcnow(),
                 status="ongoing",
                 address=address
@@ -206,7 +194,7 @@ def report():
             db.session.add(incident)
             db.session.commit()
 
-            flash("Incident submitted.", "success")
+            flash("Incident submitted successfully.", "success")
             return redirect(url_for('report'))
 
         except Exception as e:
@@ -228,10 +216,7 @@ def admin_login():
 
     if request.method == "POST":
 
-        username = request.form.get('username')
-        password = request.form.get('password')
-
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        if request.form.get('username') == ADMIN_USERNAME and request.form.get('password') == ADMIN_PASSWORD:
             session['admin'] = True
             return redirect(url_for('dashboard'))
 
@@ -249,12 +234,8 @@ def dashboard():
     if not session.get('admin'):
         return redirect(url_for('admin_login'))
 
-    try:
-        incidents = Incident.query.filter_by(status="ongoing")\
-            .order_by(Incident.created_at.desc()).all()
-    except Exception as e:
-        print("DB ERROR:", e)
-        incidents = []
+    incidents = Incident.query.filter_by(status="ongoing")\
+        .order_by(Incident.created_at.desc()).all()
 
     incident_list = []
 
@@ -273,7 +254,129 @@ def dashboard():
     return render_template("dashboard.html", incidents=incident_list)
 
 # ----------------------
-# DOWNLOAD REPORT
+# 🔥 RESTORED MONTHLY REPORT
+# ----------------------
+
+@app.route('/monthly-report')
+def monthly_report():
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    now = datetime.utcnow()
+
+    incidents = Incident.query.filter(
+        func.extract('month', Incident.created_at) == now.month,
+        func.extract('year', Incident.created_at) == now.year
+    ).order_by(Incident.created_at.desc()).all()
+
+    grouped = defaultdict(list)
+
+    for i in incidents:
+        key = format_time(i.created_at).split(" ")[0]
+        grouped[key].append(i)
+
+    summary = db.session.query(
+        Incident.type,
+        func.count(Incident.id)
+    ).filter(
+        func.extract('month', Incident.created_at) == now.month,
+        func.extract('year', Incident.created_at) == now.year
+    ).group_by(Incident.type).all()
+
+    labels = [s[0] for s in summary]
+    values = [s[1] for s in summary]
+
+    return render_template(
+        "monthly_report.html",
+        grouped_incidents=grouped,
+        labels=labels,
+        values=values
+    )
+
+# ----------------------
+# API (UNCHANGED)
+# ----------------------
+
+@app.route('/api/incidents')
+def api_incidents():
+
+    incidents = Incident.query.filter_by(status="ongoing")\
+        .order_by(Incident.created_at.desc()).all()
+
+    data = []
+
+    for i in incidents:
+        data.append({
+            "id": i.id,
+            "type": i.type or "",
+            "description": i.description or "",
+            "latitude": i.latitude,
+            "longitude": i.longitude,
+            "photo": i.photo or "",
+            "address": i.address or "",
+            "time": format_time(i.created_at)
+        })
+
+    return jsonify(data)
+
+# ----------------------
+# ARCHIVE (RESTORED)
+# ----------------------
+
+@app.route('/archive')
+def archive():
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    incidents = Incident.query.filter_by(status="resolved")\
+        .order_by(Incident.created_at.desc()).all()
+
+    grouped = defaultdict(list)
+
+    for i in incidents:
+        key = format_time(i.created_at).split(" ")[0]
+        grouped[key].append(i)
+
+    return render_template("archive.html", grouped_incidents=grouped)
+
+# ----------------------
+# RESOLVE / DELETE
+# ----------------------
+
+@app.route('/resolve/<int:id>')
+def resolve_incident(id):
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    incident = Incident.query.get_or_404(id)
+    incident.status = "resolved"
+    db.session.commit()
+
+    return redirect(url_for('dashboard'))
+
+@app.route('/delete_incident/<int:id>', methods=['POST'])
+def delete_incident(id):
+
+    if not session.get('admin'):
+        return redirect(url_for('admin_login'))
+
+    incident = Incident.query.get_or_404(id)
+
+    if incident.photo:
+        path = os.path.join(app.config['UPLOAD_FOLDER'], incident.photo)
+        if os.path.exists(path):
+            os.remove(path)
+
+    db.session.delete(incident)
+    db.session.commit()
+
+    return redirect(url_for('dashboard'))
+
+# ----------------------
+# DOWNLOAD
 # ----------------------
 
 @app.route('/download-report/<int:id>')
@@ -284,23 +387,15 @@ def download_report(id):
 
     incident = Incident.query.get_or_404(id)
 
-    try:
-        filepath = generate_incident_report(
-            incident,
-            app.config['UPLOAD_FOLDER']
-        )
-    except Exception as e:
-        print("PDF ERROR:", e)
-        abort(500)
-
-    return send_file(
-        filepath,
-        as_attachment=True,
-        download_name=f"incident_report_{incident.id}.pdf"
+    filepath = generate_incident_report(
+        incident,
+        app.config['UPLOAD_FOLDER']
     )
 
+    return send_file(filepath, as_attachment=True)
+
 # ----------------------
-# START APPLICATION
+# START
 # ----------------------
 
 if __name__ == "__main__":
